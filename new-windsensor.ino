@@ -34,7 +34,7 @@ static void doSomeWork()
     // Keep calculating average
     if (fix.valid.time)
     {
-        //DEBUG_PORT.println("Valid Time");
+        // DEBUG_PORT.println("Valid Time");
         if (fix.dateTime.seconds == nextSecond)
         {
             measurements[measurements_taken] = getWindspeed(A1);
@@ -49,6 +49,71 @@ static void doSomeWork()
             }
             DEBUG_PORT.println(nextSecond);
             measurements_taken++;
+            if (fix.valid.date)
+            {
+                month = fix.dateTime.month;
+                day = fix.dateTime.day;
+                year = fix.dateTime.year;
+                if (fix.dateTime.hours < 10)
+                    ;
+                hour = fix.dateTime.hours;
+                if (fix.dateTime.minutes < 10)
+                    ;
+                minute = fix.dateTime.minutes;
+                if (fix.dateTime.seconds < 10)
+                    ;
+                second = fix.dateTime.seconds;
+                // create timestamp
+                char timestamp[64];
+                sprintf(timestamp, "%04d-%02d-%02dT%02d:%02d:%02dZ", year, month, day, hour, minute, second);
+
+                // prepare data for writing to SD card
+                String dataString = "";
+
+                dataString = "Windspeed";
+                dataString += String(",");
+                dataString += String(measurements[measurements_taken], 2);
+                dataString += String(",");
+                dataString += String(timestamp);
+                dataString += String("\n");
+                dataString += "Raw Sensor Data";
+                dataString += String(",");
+                dataString += String(analogRead(A1));
+                dataString += String(",");
+                dataString += String(timestamp);
+                dataString += String("\n");
+                dataString += "Voltage";
+                dataString += String(",");
+                dataString += String(3.3 * ((float)analogRead(A1)) / 1024);
+                dataString += String(",");
+                dataString += String(timestamp);
+                Serial.println(dataString);
+
+                if (lineCount >= 2490)
+                {
+                    Serial.println("End of file length.");
+                    getNewFileName();
+                    lineCount = 0;
+                }
+
+                SdFile::dateTimeCallback(dateTimeFun);
+                myFile = SD.open(fileName, FILE_WRITE);
+
+                if (myFile)
+                {
+                    Serial.print("Logging data to " + fileName);
+                    myFile.println(dataString);
+                    myFile.close();
+                    lineCount += 3;
+                    Serial.println(" done.");
+                }
+                else
+                {
+                    Serial.println("error opening " + fileName);
+                    delay(10000);
+                }
+                Serial.println();
+            }
         }
         if (measurements_taken == num_measurements)
         {
@@ -56,71 +121,6 @@ static void doSomeWork()
             DEBUG_PORT.print("Durchschnitl. Windgeschwindigkeit: ");
             DEBUG_PORT.println(average(measurements, num_measurements));
             measurements_taken = 0;
-        }
-        if (fix.valid.date)
-        {
-            month = fix.dateTime.month;
-            day = fix.dateTime.day;
-            year = fix.dateTime.year;
-            if (fix.dateTime.hours < 10)
-                ;
-            hour = fix.dateTime.hours;
-            if (fix.dateTime.minutes < 10)
-                ;
-            minute = fix.dateTime.minutes;
-            if (fix.dateTime.seconds < 10)
-                ;
-            second = fix.dateTime.seconds;
-            // create timestamp
-            char timestamp[64];
-            sprintf(timestamp, "%04d-%02d-%02dT%02d:%02d:%02dZ", year, month, day, hour, minute, second);
-
-            // prepare data for writing to SD card
-            String dataString = "";
-
-            dataString = "Windspeed";
-            dataString += String(",");
-            dataString += String(measurements[measurements_taken], 2);
-            dataString += String(",");
-            dataString += String(timestamp);
-            dataString += String("\n");
-            dataString = "Raw Sensor Data";
-            dataString += String(",");
-            dataString += String(analogRead(A1));
-            dataString += String(",");
-            dataString += String(timestamp);
-            dataString += String("\n");
-            dataString = "Voltage";
-            dataString += String(",");
-            dataString += String(3.3 * ((float)analogRead(A1)) / 1024);
-            dataString += String(",");
-            dataString += String(timestamp);
-            Serial.println(dataString);
-
-            if (lineCount >= 2490)
-            {
-                Serial.println("End of file length.");
-                getNewFileName();
-                lineCount = 0;
-            }
-
-            SdFile::dateTimeCallback(dateTimeFun);
-            myFile = SD.open(fileName, FILE_WRITE);
-
-            if (myFile)
-            {
-                Serial.print("Logging data to " + fileName);
-                myFile.println(dataString);
-                myFile.close();
-                lineCount += 3;
-                Serial.println(" done.");
-            }
-            else
-            {
-                Serial.println("error opening " + fileName);
-                delay(10000);
-            }
-            Serial.println();
         }
     }
 }
@@ -180,7 +180,6 @@ void setup()
 
 {
     senseBoxIO.powerAll();
-    SD.begin(28);
     DEBUG_PORT.begin(9600);
     DEBUG_PORT.print(F("NMEA.INO: started\n"));
     DEBUG_PORT.print(F("  fix object size = "));
@@ -189,7 +188,7 @@ void setup()
     DEBUG_PORT.println(sizeof(gps));
     DEBUG_PORT.println(F("Looking for GPS device on " GPS_PORT_NAME));
     DEBUG_PORT.flush();
-    gpsPort.begin(9600);
+
     Serial.print("Initializing SD card...");
     if (!SD.begin(chipSelect))
     {
@@ -226,6 +225,7 @@ void setup()
         while (true)
             ;
     }
+    gpsPort.begin(9600);
     DEBUG_PORT.println("Begin.");
     DEBUG_PORT.print("Taking ");
     DEBUG_PORT.print(num_measurements);
