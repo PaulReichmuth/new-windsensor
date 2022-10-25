@@ -72,7 +72,7 @@ static void doSomeWork()
 
                 dataString = "Windspeed";
                 dataString += String(",");
-                dataString += String(measurements[measurements_taken], 2);
+                dataString += String(getWindspeed(A1), 2);
                 dataString += String(",");
                 dataString += String(timestamp);
                 dataString += String("\n");
