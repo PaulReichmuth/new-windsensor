@@ -2,44 +2,13 @@
 #include <SPI.h>
 #include <SD.h>
 #include <NMEAGPS.h>
-//-------------------------------------------------------------------------
-//  The GPSport.h include file tries to choose a default serial port
-//  for the GPS device.  If you know which serial port you want to use,
-//  edit the GPSport.h file.
-
 #include <GPSport.h>
-
-//------------------------------------------------------------
-// For the NeoGPS example programs, "Streamers" is common set
-//   of printing and formatting routines for GPS data, in a
-//   Comma-Separated Values text format (aka CSV).  The CSV
-//   data will be printed to the "debug output device".
-// If you don't need these formatters, simply delete this section.
-
 #include <Streamers.h>
 
-//------------------------------------------------------------
-// This object parses received characters
-//   into the gps.fix() data structure
+#define MEASUREMENT_INTERVAL_SEC 10 // Change rate of measurement here
 
 static NMEAGPS gps;
-
-//------------------------------------------------------------
-//  Define a set of GPS fix information.  It will
-//  hold on to the various pieces as they are received from
-//  an RMC sentence.  It can be used anywhere in your sketch.
-
 static gps_fix fix;
-
-//----------------------------------------------------------------
-//  This function gets called about once per second, during the GPS
-//  quiet time.  It's the best place to do anything that might take
-//  a while: print a bunch of things, write to SD, send an SMS, etc.
-//
-//  By doing the "hard" work during the quiet time, the CPU can get back to
-//  reading the GPS chars as they come in, so that no chars are lost.
-
-#define MEASUREMENT_INTERVAL_SEC 10 // Change rate of measurement here
 
 const int num_measurements = (60 * 10) / MEASUREMENT_INTERVAL_SEC; // number of measurements to get in 10 Minutes
 
@@ -49,6 +18,13 @@ float measurements[num_measurements];
 
 uint8_t nextSecond = 0;
 
+unsigned int day, month, year, hour, minute, second;
+File myFile;
+const int chipSelect = 28; // D28 on senseBox MCU mini
+String fileName = "03_00001.csv";
+unsigned int fileCount = 0;
+unsigned short lineCount = 0;
+
 static void doSomeWork()
 {
     // Print all the things!
@@ -56,23 +32,96 @@ static void doSomeWork()
     trace_all(DEBUG_PORT, gps, fix);
 
     // Keep calculating average
+    if (fix.valid.time)
+    {
+        //DEBUG_PORT.println("Valid Time");
+        if (fix.dateTime.seconds == nextSecond)
+        {
+            measurements[measurements_taken] = getWindspeed(A1);
+            DEBUG_PORT.print("Took Sample Num.: ");
+            DEBUG_PORT.println(measurements_taken);
+            DEBUG_PORT.print("Windgeschwindigkeit grade: ");
+            DEBUG_PORT.println(measurements[measurements_taken]);
+            nextSecond = fix.dateTime.seconds + MEASUREMENT_INTERVAL_SEC;
+            if (nextSecond >= 60)
+            {
+                nextSecond = nextSecond - 60;
+            }
+            DEBUG_PORT.println(nextSecond);
+            measurements_taken++;
+        }
+        if (measurements_taken == num_measurements)
+        {
+            // print avg
+            DEBUG_PORT.print("Durchschnitl. Windgeschwindigkeit: ");
+            DEBUG_PORT.println(average(measurements, num_measurements));
+            measurements_taken = 0;
+        }
+        if (fix.valid.date)
+        {
+            month = fix.dateTime.month;
+            day = fix.dateTime.day;
+            year = fix.dateTime.year;
+            if (fix.dateTime.hours < 10)
+                ;
+            hour = fix.dateTime.hours;
+            if (fix.dateTime.minutes < 10)
+                ;
+            minute = fix.dateTime.minutes;
+            if (fix.dateTime.seconds < 10)
+                ;
+            second = fix.dateTime.seconds;
+            // create timestamp
+            char timestamp[64];
+            sprintf(timestamp, "%04d-%02d-%02dT%02d:%02d:%02dZ", year, month, day, hour, minute, second);
 
-    if (fix.dateTime.seconds >= nextSecond)
-    {
-        measurements[measurements_taken] = getWindspeed(A1);
-        DEBUG_PORT.print("Took Sample Num.: ");
-        DEBUG_PORT.println(i);
-        DEBUG_PORT.print("Windgeschwindigkeit grade: ");
-        DEBUG_PORT.println(measurements[i]);
-        nextSecond = fix.dateTime.seconds + MEASUREMENT_INTERVAL_SEC;
-        measurements_taken++;
-    }
-    if (measurements_taken == num_measurements)
-    {
-        // print avg
-        DEBUG_PORT.print("Durchschnitl. Windgeschwindigkeit: ");
-        DEBUG_PORT.println(average(measurements, num_measurements));
-        measurements_taken = 0;
+            // prepare data for writing to SD card
+            String dataString = "";
+
+            dataString = "Windspeed";
+            dataString += String(",");
+            dataString += String(measurements[measurements_taken], 2);
+            dataString += String(",");
+            dataString += String(timestamp);
+            dataString += String("\n");
+            dataString = "Raw Sensor Data";
+            dataString += String(",");
+            dataString += String(analogRead(A1));
+            dataString += String(",");
+            dataString += String(timestamp);
+            dataString += String("\n");
+            dataString = "Voltage";
+            dataString += String(",");
+            dataString += String(3.3 * ((float)analogRead(A1)) / 1024);
+            dataString += String(",");
+            dataString += String(timestamp);
+            Serial.println(dataString);
+
+            if (lineCount >= 2490)
+            {
+                Serial.println("End of file length.");
+                getNewFileName();
+                lineCount = 0;
+            }
+
+            SdFile::dateTimeCallback(dateTimeFun);
+            myFile = SD.open(fileName, FILE_WRITE);
+
+            if (myFile)
+            {
+                Serial.print("Logging data to " + fileName);
+                myFile.println(dataString);
+                myFile.close();
+                lineCount += 3;
+                Serial.println(" done.");
+            }
+            else
+            {
+                Serial.println("error opening " + fileName);
+                delay(10000);
+            }
+            Serial.println();
+        }
     }
 }
 
@@ -108,6 +157,25 @@ float average(float *array, int len) // assuming array is int.
     return ((float)sum) / len; // average will be fractional, so float may be appropriate.
 }
 
+void getNewFileName()
+{
+    fileCount++;
+    char newFileName[12];
+    sprintf(newFileName, "03_%05d.csv", fileCount);
+    fileName = String(newFileName);
+    Serial.println("Updating filename to " + String(newFileName));
+}
+
+void dateTimeFun(uint16_t *date, uint16_t *time)
+{
+
+    // return date using FAT_DATE macro to format fields
+    *date = FAT_DATE(fix.dateTime.year, fix.dateTime.month, fix.dateTime.day);
+
+    // return time using FAT_TIME macro to format fields
+    *time = FAT_TIME(fix.dateTime.hours, fix.dateTime.minutes, fix.dateTime.seconds);
+}
+
 void setup()
 
 {
@@ -121,7 +189,43 @@ void setup()
     DEBUG_PORT.println(sizeof(gps));
     DEBUG_PORT.println(F("Looking for GPS device on " GPS_PORT_NAME));
     DEBUG_PORT.flush();
-    gpsPort.begin( 9600 );
+    gpsPort.begin(9600);
+    Serial.print("Initializing SD card...");
+    if (!SD.begin(chipSelect))
+    {
+        Serial.println("initialization failed. Things to check:");
+        Serial.println("1. is a card inserted?");
+        Serial.println("2. is your wiring correct?");
+        Serial.println("3. did you change the chipSelect pin to match your shield or module?");
+        Serial.println("Note: press reset or reopen this Serial Monitor after fixing your issue!");
+        while (true)
+        {
+            senseBoxIO.statusRed();
+        }
+    }
+    else
+        Serial.println("done.");
+
+    do
+    {
+        getNewFileName();
+    } while (SD.exists(fileName));
+
+    Serial.print("Testing SD card...");
+    myFile = SD.open(fileName, FILE_WRITE);
+    if (myFile)
+    {
+        myFile.close();
+        delay(1000);
+        SD.remove(fileName);
+        Serial.println("done.");
+    }
+    else
+    {
+        Serial.println("error opening " + fileName);
+        while (true)
+            ;
+    }
     DEBUG_PORT.println("Begin.");
     DEBUG_PORT.print("Taking ");
     DEBUG_PORT.print(num_measurements);
