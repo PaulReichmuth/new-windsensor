@@ -52,7 +52,7 @@ static void doSomeWork()
             if (fix.valid.date)
             {
                 month = fix.dateTime.month;
-                day = fix.dateTime.day;
+                day = fix.dateTime.date;
                 year = fix.dateTime.full_year(fix.dateTime.year);
                 if (fix.dateTime.hours < 10)
                     ;
@@ -170,7 +170,7 @@ void dateTimeFun(uint16_t *date, uint16_t *time)
 {
 
     // return date using FAT_DATE macro to format fields
-    *date = FAT_DATE(fix.dateTime.full_year(fix.dateTime.year), fix.dateTime.month, fix.dateTime.day);
+    *date = FAT_DATE(fix.dateTime.full_year(fix.dateTime.year), fix.dateTime.month, fix.dateTime.date);
 
     // return time using FAT_TIME macro to format fields
     *time = FAT_TIME(fix.dateTime.hours, fix.dateTime.minutes, fix.dateTime.seconds);
