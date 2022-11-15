@@ -4,13 +4,14 @@
 #include <NMEAGPS.h>
 #include <GPSport.h>
 #include <Streamers.h>
+#include <Adafruit_HDC1000.h>
 
 #define MEASUREMENT_INTERVAL_SEC 10 // Change rate of measurement here
 
 static NMEAGPS gps;
 static gps_fix fix;
 
-const int num_measurements = (60 * 10) / MEASUREMENT_INTERVAL_SEC; // number of measurements to get in 10 Minutes
+const int num_measurements = (60 * 1) / MEASUREMENT_INTERVAL_SEC; // number of measurements to get in 10 Minutes
 
 int measurements_taken = 0;
 
@@ -24,6 +25,8 @@ const int chipSelect = 28; // D28 on senseBox MCU mini
 String fileName = "03_00001.csv";
 unsigned int fileCount = 0;
 unsigned short lineCount = 0;
+
+Adafruit_HDC1000 hdc;
 
 static void doSomeWork()
 {
@@ -53,7 +56,9 @@ static void doSomeWork()
             {
                 month = fix.dateTime.month;
                 day = fix.dateTime.day;
-                year = fix.dateTime.year;
+                year = fix.dateTime.full_year(fix.dateTime.year);
+                DEBUG_PORT.print("Year: ");
+                DEBUG_PORT.println(year);
                 if (fix.dateTime.hours < 10)
                     ;
                 hour = fix.dateTime.hours;
@@ -70,21 +75,9 @@ static void doSomeWork()
                 // prepare data for writing to SD card
                 String dataString = "";
 
-                dataString = "Windspeed";
+                dataString = "Temperature";
                 dataString += String(",");
-                dataString += String(getWindspeed(A1), 2);
-                dataString += String(",");
-                dataString += String(timestamp);
-                dataString += String("\n");
-                dataString += "Raw Sensor Data";
-                dataString += String(",");
-                dataString += String(analogRead(A1));
-                dataString += String(",");
-                dataString += String(timestamp);
-                dataString += String("\n");
-                dataString += "Voltage";
-                dataString += String(",");
-                dataString += String(3.3 * ((float)analogRead(A1)) / 1024);
+                dataString += String(hdc.readTemperature(), 2);
                 dataString += String(",");
                 dataString += String(timestamp);
                 Serial.println(dataString);
@@ -104,7 +97,7 @@ static void doSomeWork()
                     Serial.print("Logging data to " + fileName);
                     myFile.println(dataString);
                     myFile.close();
-                    lineCount += 3;
+                    lineCount += 1;
                     Serial.println(" done.");
                 }
                 else
@@ -115,13 +108,13 @@ static void doSomeWork()
                 Serial.println();
             }
         }
-        if (measurements_taken == num_measurements)
-        {
-            // print avg
-            DEBUG_PORT.print("Durchschnitl. Windgeschwindigkeit: ");
-            DEBUG_PORT.println(average(measurements, num_measurements));
-            measurements_taken = 0;
-        }
+    }
+    if (measurements_taken == num_measurements)
+    {
+        // print avg
+        DEBUG_PORT.print("Durchschnitl. Windgeschwindigkeit: ");
+        DEBUG_PORT.println(average(measurements, num_measurements));
+        measurements_taken = 0;
     }
 }
 
@@ -170,7 +163,7 @@ void dateTimeFun(uint16_t *date, uint16_t *time)
 {
 
     // return date using FAT_DATE macro to format fields
-    *date = FAT_DATE(fix.dateTime.year, fix.dateTime.month, fix.dateTime.day);
+    *date = FAT_DATE(fix.dateTime.full_year(fix.dateTime.year), fix.dateTime.month, fix.dateTime.day);
 
     // return time using FAT_TIME macro to format fields
     *time = FAT_TIME(fix.dateTime.hours, fix.dateTime.minutes, fix.dateTime.seconds);
@@ -225,6 +218,9 @@ void setup()
         while (true)
             ;
     }
+
+    hdc.begin();
+
     gpsPort.begin(9600);
     DEBUG_PORT.println("Begin.");
     DEBUG_PORT.print("Taking ");
